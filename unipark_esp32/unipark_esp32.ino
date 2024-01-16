@@ -181,7 +181,7 @@ void loop() {
           } else {
             Serial.println("Parking is full");
 
-            tft.setTextColor(TFT_BLACK);
+            tft.setTextColor(TFT_WHITE);
             tft.fillScreen(TFT_RED);
             tft.drawString("PARKING FULL", tft.width()/2, 60);
 
@@ -190,7 +190,7 @@ void loop() {
         } else {
           Serial.println("RFID tag terminated/expired!");
 
-          tft.setTextColor(TFT_BLACK);
+          tft.setTextColor(TFT_WHITE);
           tft.fillScreen(TFT_RED);
           tft.drawString("RFID TAG TERMINATED", tft.width()/2, 60);
 
@@ -219,7 +219,7 @@ void loop() {
     } else {
       Serial.println("RFID tag not exist!");
 
-      tft.setTextColor(TFT_BLACK);
+      tft.setTextColor(TFT_WHITE);
       tft.fillScreen(TFT_RED);
       tft.drawString("RFID TAG INVALID", tft.width()/2, 60);
 
