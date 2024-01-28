@@ -12,6 +12,8 @@
 
 #define WEB_API_KEY ""
 #define FIREBASE_PROJECT_ID ""
+#define FIREBASE_CLIENT_EMAIL ""
+const char PRIVATE_KEY[] PROGMEM = "-----BEGIN PRIVATE KEY-----***********-----END PRIVATE KEY-----\n";
 
 #define USER_EMAIL ""
 #define USER_PASSWORD ""
@@ -40,7 +42,11 @@ bool parking_entered = false;
 bool rfid_status = true;
 int parking_available = 0;
 int parking_total = 0;
+String parking_name = "";
 String plate_number = "";
+String user_id = "";
+String device_token = "";
+String user_name = "";
 
 void setup() {
   // put your setup code here, to run once:
@@ -60,7 +66,7 @@ void setup() {
   // Servo init
   servo1.attach(12);
   servo2.attach(13);
-  servo1.write(190);
+  servo1.write(0);
   servo2.write(0);
 
   // WiFi init
@@ -76,6 +82,11 @@ void setup() {
 
   // Firebase init
   Serial.printf("Firebase Client v%s\n\n", FIREBASE_CLIENT_VERSION);
+
+  // Assign the sevice account credentials and private key (required)
+  config.service_account.data.client_email = FIREBASE_CLIENT_EMAIL;
+  config.service_account.data.project_id = FIREBASE_PROJECT_ID;
+  config.service_account.data.private_key = PRIVATE_KEY;
 
   config.api_key = WEB_API_KEY;
 
@@ -129,34 +140,55 @@ void loop() {
     String documentPathRfid = "RFID/" + uidString;
     String documentPathParking = "Parking/NxKl9i1D5RMUeQDveWF7";
 
-    // To get parking data
+    // ---- GET PARKING DATA AND ASSIGN TO VARIABLES ---- //
     Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPathParking.c_str());
     content.setJsonData(fbdo.payload().c_str());
     FirebaseJsonData jsonParkingData1;
     FirebaseJsonData jsonParkingData2;
+    FirebaseJsonData jsonParkingData3;
     content.get(jsonParkingData1, "fields/parking_available/integerValue", true);
     content.get(jsonParkingData2, "fields/parking_total/integerValue", true);
+    content.get(jsonParkingData3, "fields/parking_name/stringValue", true);
     parking_available = jsonParkingData1.intValue;
     parking_total = jsonParkingData2.intValue;
+    parking_name = jsonParkingData3.stringValue;
 
-    // Your additional logic here
     // Check the RFID Tag ID exist in Firestore or not
     if (Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPathRfid.c_str())) {
       Serial.println("RFID tag exist!");
 
+      // ---- GET RFID DATA AND ASSIGN TO VARIABLES ---- //
       content.clear();
       content.setJsonData(fbdo.payload().c_str());
 
       FirebaseJsonData jsonData1;
       FirebaseJsonData jsonData2;
       FirebaseJsonData jsonData3;
+      FirebaseJsonData jsonData4;
       content.get(jsonData1, "fields/parking_entered/booleanValue", true);
       content.get(jsonData2, "fields/rfid_status/booleanValue", true);
       content.get(jsonData3, "fields/plate_number/stringValue", true);
+      content.get(jsonData4, "fields/user_id/stringValue", true);
       parking_entered = jsonData1.boolValue;
       rfid_status = jsonData2.boolValue;
       plate_number = jsonData3.stringValue;
+      user_id = jsonData4.stringValue;
 
+      // ---- GET USER DATA AND ASSIGN TO VARIABLES ---- //
+      String documentPathUsers = "Users/" + user_id;
+      Firebase.Firestore.getDocument(&fbdo, FIREBASE_PROJECT_ID, "", documentPathUsers.c_str());
+
+      content.clear();
+      content.setJsonData(fbdo.payload().c_str());
+
+      FirebaseJsonData jsonUserData1;
+      FirebaseJsonData jsonUserData2;
+      content.get(jsonUserData1, "fields/device_token/stringValue", true);
+      content.get(jsonUserData2, "fields/name/stringValue", true);
+      device_token = jsonUserData1.stringValue;
+      user_name = jsonUserData2.stringValue;
+
+      // ---- PARKING LOGIC ---- //
       if (parking_entered == false) {
         if (rfid_status == true) {
           if (parking_available <= parking_total) {
@@ -177,7 +209,11 @@ void loop() {
             tft.drawString("GATE OPENED ENTER", tft.width()/2, 80);
             
             servo1.write(90);
-            delay(6000);
+            delay(5000);
+
+            // Send welcome notification
+            sendMessage(device_token, "Hello, welcome to " + parking_name + " 👋🏻", "Hey " + user_name + "," + "\n\n" + plate_number + "\n" + uidString + "\n\nYou have entered the " + parking_name + ". Thank you for using UniPark@UiTM.");
+
           } else {
             Serial.println("Parking is full");
 
@@ -214,7 +250,11 @@ void loop() {
         tft.drawString("GATE OPENED EXIT", tft.width()/2, 80);
 
         servo2.write(90);
-        delay(6000);
+        delay(5000);
+
+        // Send goodbye notification
+        sendMessage(device_token, "Goodbye, see you soon 👋🏻", "Hey " + user_name + "," + "\n\n" + plate_number + "\n" + uidString + "\n\nYou have exited from " + parking_name + ". Thank you for using UniPark@UiTM.");
+      
       }
     } else {
       Serial.println("RFID tag not exist!");
@@ -232,7 +272,7 @@ void loop() {
     tft.fillScreen(TFT_RED);
     tft.drawString("GATE CLOSED", tft.width()/2, 60);
 
-    servo1.write(190);
+    servo1.write(0);
     servo2.write(0);
     Serial.println("===============================");
 
@@ -244,9 +284,56 @@ void loop() {
     tft.drawString("UNIPARK@UITM", tft.width()/2, 50);
     tft.drawString("PARKING AVAIL: " + totalAvailParking, tft.width()/2, 80);
 
+    // Send notification if the parking is 80% full
+    if(parking_available == (parking_total * 0.8)) {
+      sendMessageTopic(parking_name + " is almost full ⛔️", "Hurry up! " + parking_name + " is 80% full. There are " + parking_available + " parking left.");
+    }
+
+    // Send notification if the parking is 100% full
+    if(parking_available == parking_total) {
+      sendMessageTopic(parking_name + " is full ⛔️", "Sadly, to inform you, the " + parking_name + " is 100% full 😕");
+    }
+
     delay(1000); // Add a delay to prevent multiple readings in a short time
   }
 
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
+}
+
+void sendMessage(String DEVICE_REGISTRATION_ID_TOKEN, String title, String body) {
+  Serial.print("Send Firebase Cloud Messaging... ");
+
+  // Firebase Cloud Messaging API (V1)
+  FCM_HTTPv1_JSON_Message msg;
+  msg.token = DEVICE_REGISTRATION_ID_TOKEN;
+
+  msg.notification.title = title;
+  msg.notification.body = body;
+
+  // send message to recipient
+  if (Firebase.FCM.send(&fbdo, &msg)) {
+    Serial.printf("ok\n%s\n\n", Firebase.FCM.payload(&fbdo).c_str());
+  } else {
+    Serial.println(fbdo.errorReason());
+  }
+}
+
+void sendMessageTopic(String title, String body) {
+  Serial.print("Send Firebase Cloud Messaging... ");
+
+  // Firebase Cloud Messaging API (V1)
+  FCM_HTTPv1_JSON_Message msg;
+
+  msg.topic = "all"; // Topic name to send a message to, e.g. "weather". Note: "/topics/" prefix should not be provided.
+  msg.notification.title = title;
+  msg.notification.body = body;
+
+  // send message to recipient
+  if (Firebase.FCM.send(&fbdo, &msg)) {
+    Serial.printf("ok\n%s\n\n", Firebase.FCM.payload(&fbdo).c_str());
+  }
+  else {
+    Serial.println(fbdo.errorReason());
+  }
 }
